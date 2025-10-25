@@ -7,7 +7,7 @@ import datetime as dt
 
 import pandas as pd
 try:
-    import numpy as np  # opcional (apenas para serialização segura)
+    import numpy as np  # opcional (para serialização segura)
 except Exception:
     np = None
 
@@ -20,11 +20,8 @@ def snake(s: str) -> str:
 
 
 def json_default(o):
-    # pandas / datetime
     if isinstance(o, (pd.Timestamp, dt.datetime)):
-        # formata sempre como ISO sem timezone
         try:
-            # se tiver timezone, converte para naive
             if getattr(o, "tzinfo", None) is not None:
                 o = o.astimezone(dt.timezone.utc).replace(tzinfo=None)
         except Exception:
@@ -33,77 +30,91 @@ def json_default(o):
     if isinstance(o, dt.date):
         return o.isoformat()
 
-    # numpy (se importado)
     if np is not None:
-        if isinstance(o, np.integer):
-            return int(o)
-        if isinstance(o, np.floating):
-            return float(o)
-        if isinstance(o, np.bool_):
-            return bool(o)
+        if isinstance(o, np.integer):  return int(o)
+        if isinstance(o, np.floating): return float(o)
+        if isinstance(o, np.bool_):    return bool(o)
 
-    # fallback genérico
     return str(o)
 
 
-def coerce_datetimes_to_iso(df: pd.DataFrame) -> pd.DataFrame:
+def format_dt_series_iso(s: pd.Series) -> pd.Series:
+    """Formata uma Series datetime (com ou sem timezone) para string ISO."""
+    try:
+        s = s.dt.tz_convert("UTC").dt.tz_localize(None)
+    except Exception:
+        try:
+            s = s.dt.tz_localize(None)
+        except Exception:
+            pass
+    return s.dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def coerce_datetimes_to_iso(
+    df: pd.DataFrame,
+    *,
+    dayfirst: bool,
+    auto_dates: bool,
+    forced_cols: set[str],
+    threshold: float = 0.8,
+) -> pd.DataFrame:
     """
-    Converte colunas que são (ou podem virar) datetime em strings ISO-8601.
-    Cobre dtypes datetime64, séries de Timestamp e colunas 'object' com datas.
-    Remove timezone (ou converte e remove) para JSON simples.
+    - Converte colunas já datetime64 -> ISO.
+    - Para colunas texto/object, tenta parsear; só converte se >= threshold parecem datas.
+    - Nunca converte colunas numéricas.
+    - 'forced_cols' sempre converte, mesmo que não atinja o limiar.
     """
     for col in df.columns:
-        # tenta converter sem explodir se não for datetime
-        converted = pd.to_datetime(df[col], errors="ignore", utc=False)
+        s = df[col]
 
-        # se ficou datetime, formata ISO
-        if pd.api.types.is_datetime64_any_dtype(converted):
-            # remove timezone se houver
-            try:
-                converted = converted.dt.tz_convert("UTC").dt.tz_localize(None)
-            except Exception:
-                try:
-                    converted = converted.dt.tz_localize(None)
-                except Exception:
-                    pass
-            df[col] = converted.dt.strftime("%Y-%m-%dT%H:%M:%S")
+        # 1) Já é datetime? Formata.
+        if pd.api.types.is_datetime64_any_dtype(s):
+            df[col] = format_dt_series_iso(s)
+            continue
+
+        # 2) Forçar por CLI (apenas tenta se não for numérica)
+        if col in forced_cols and not (pd.api.types.is_integer_dtype(s) or pd.api.types.is_float_dtype(s)):
+            parsed = pd.to_datetime(s, errors="coerce", dayfirst=dayfirst, utc=False)
+            if parsed.notna().any():
+                df[col] = format_dt_series_iso(parsed)
+            continue
+
+        # 3) Heurística automática (se habilitada) — apenas em texto/object
+        if auto_dates and (pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)):
+            parsed = pd.to_datetime(s, errors="coerce", dayfirst=dayfirst, utc=False)
+            non_null = s.notna().sum()
+            ratio = (parsed.notna().sum() / non_null) if non_null else 0.0
+            if ratio >= threshold and parsed.notna().any():
+                df[col] = format_dt_series_iso(parsed)
+
+        # 4) Se for numérica → ignora (não é data)
+        # (nada a fazer)
+
     return df
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description="Converte Excel (.xlsx/.xls) para JSON."
-    )
+    ap = argparse.ArgumentParser(description="Converte Excel (.xlsx/.xls) para JSON.")
     ap.add_argument("input", help="Arquivo Excel (.xlsx/.xls)")
     ap.add_argument("-o", "--output", help="Arquivo de saída .json (default = mesmo nome)")
     ap.add_argument("-s", "--sheet", help="Nome da planilha ou índice (0-based)")
-    ap.add_argument(
-        "--orient",
-        default="records",
-        choices=["records", "table"],
-        help="Formato JSON (records=lista de objetos, table=JSON Table Schema)",
-    )
-    ap.add_argument(
-        "--keep-headers",
-        dest="keep_headers",
-        action="store_true",
-        help="Não normalizar cabeçalhos (mantém como no Excel)",
-    )
-    ap.add_argument(
-        "--na-null",
-        dest="na_null",
-        action="store_true",
-        help="Converter células vazias para null",
-    )
-    ap.add_argument(
-        "--date-iso",
-        dest="date_iso",
-        action="store_true",
-        help="Forçar datas para ISO8601 (remove timezone)",
-    )
+    ap.add_argument("--orient", default="records", choices=["records", "table"],
+                    help="Formato JSON (records=lista de objetos, table=JSON Table Schema)")
+    ap.add_argument("--keep-headers", dest="keep_headers", action="store_true",
+                    help="Não normalizar cabeçalhos (mantém como no Excel)")
+    ap.add_argument("--na-null", dest="na_null", action="store_true",
+                    help="Converter células vazias para null")
+    ap.add_argument("--date-iso", dest="date_iso", action="store_true",
+                    help="Formatar colunas de data em ISO8601")
+    ap.add_argument("--dayfirst", dest="dayfirst", action="store_true",
+                    help="Interpretar datas como DD/MM/AAAA (pt-BR)")
+    ap.add_argument("--date-cols", dest="date_cols", default="",
+                    help="Lista de colunas (separadas por vírgula) para forçar como data")
+    ap.add_argument("--no-auto-dates", dest="no_auto_dates", action="store_true",
+                    help="Desabilita a detecção automática de colunas de data")
     args = ap.parse_args()
 
-    # sheet pode ser índice (int) ou nome (str)
+    # Interpretar sheet como índice ou nome
     sheet = None
     if args.sheet is not None:
         try:
@@ -111,41 +122,45 @@ def main():
         except ValueError:
             sheet = args.sheet
 
-    # tenta usar dtype_backend='pyarrow' se disponível
+    # dtype_backend='pyarrow' se disponível
     read_excel_kwargs = {"sheet_name": sheet}
     try:
         import pyarrow  # noqa: F401
         read_excel_kwargs["dtype_backend"] = "pyarrow"
     except Exception:
-        pass  # segue sem pyarrow
+        pass
 
-    # lê Excel
+    # Lê Excel
     df = pd.read_excel(args.input, **read_excel_kwargs)
 
-    # normaliza cabeçalhos
+    # Normaliza cabeçalhos
     if not args.keep_headers:
         df.columns = [snake(str(c)) for c in df.columns]
 
-    # vazios -> None
+    # Vazios -> None
     if args.na_null:
         df = df.where(pd.notna(df), None)
 
-    # datas -> ISO 8601
+    # Datas -> ISO (robusto)
     if args.date_iso:
-        df = coerce_datetimes_to_iso(df)
+        forced_cols = {c.strip() for c in args.date_cols.split(",") if c.strip()}
+        df = coerce_datetimes_to_iso(
+            df,
+            dayfirst=args.dayfirst,
+            auto_dates=not args.no_auto_dates,
+            forced_cols=forced_cols,
+        )
 
-    # prepara saída
+    # Saída
     out_path = Path(args.output) if args.output else Path(args.input).with_suffix(".json")
 
-    # payload
+    # Payload
     if args.orient == "records":
         payload = df.to_dict(orient="records")
-    else:  # "table"
-        # df.to_json(orient="table") já lida com schema/data,
-        # mas pode conter Timestamps -> usa loads/dumps com default
+    else:
         payload = json.loads(df.to_json(orient="table"))
 
-    # grava JSON (com default para qualquer tipo “estranho”)
+    # Grava JSON
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2, default=json_default)
 
