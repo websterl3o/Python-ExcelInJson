@@ -37,6 +37,19 @@ Pro tip:
 
 * If you’ve got codes/ZIPs with **leading zeros**, keep them as **text** in Excel so you don’t lose formatting.
 
+If you hit errors like `ModuleNotFoundError: No module named 'pandas'`, install the dependencies with:
+
+```bash
+Em caso de erros como `ModuleNotFoundError: No module named 'pandas'`, instale as dependências com:
+
+```bash
+# 1) Update pip
+python -m pip install --upgrade pip
+
+# 2) Install script dependencies
+python -m pip install pandas openpyxl pyarrow
+```
+
 ---
 
 # PT-BR — Explicação
@@ -73,3 +86,13 @@ Quando usar:
 Dica rápida:
 
 * Se tiver código/CEP com **zero à esquerda**, trate como **texto** no Excel pra não perder o formato.
+
+Em caso de erros como `ModuleNotFoundError: No module named 'pandas'`, instale as dependências com:
+
+```bash
+# 1) Atualize o pip
+python -m pip install --upgrade pip
+
+# 2) Instale dependências do script
+python -m pip install pandas openpyxl pyarrow
+```
