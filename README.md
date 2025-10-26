@@ -2,97 +2,172 @@
 
 ### Tags: python, excel, json, data-transformation, etl, data-cleaning
 
-# EN — Explanation
-
-`excelInJson.py` is your handy little script that takes an Excel sheet and spits out clean JSON ready for your app. It assumes the **first row** is your **column names** and every next row becomes a **JSON object**.
-
-What it does:
-
-* Reads `.xlsx/.xls` and lets you pick the **sheet**.
-* **Normalizes headers** to `snake_case` so your backend stays happy.
-* Converts **dates** to **ISO-8601** (e.g., `2025-10-25T14:00:00`) if you want.
-* Turns **empty cells** into **`null`** (super helpful for validation).
-* You pick the **output format**:
-
-  * `records` → `[{...}, {...}]` (API-friendly)
-  * `table` → includes a **schema** (great for validation/ETL)
-
-How to run:
-
-```bash
-# Simple conversion (sheet 0), ISO dates, and empties -> null
-python excelInJson.py data.xlsx -s 0 --date-iso --na-null
-
-# Use sheet by name, keep headers as-is
-python excelInJson.py data.xlsx -s "Sheet1" --keep-headers -o output.json
-```
-
-When it’s handy:
-
-* Seeding your database or migrations.
-* Posting data to an API without wrestling with Excel.
-* Standardizing a “messy” client dataset.
-
-Pro tip:
-
-* If you’ve got codes/ZIPs with **leading zeros**, keep them as **text** in Excel so you don’t lose formatting.
-
-If you hit errors like `ModuleNotFoundError: No module named 'pandas'`, install the dependencies with:
-
-```bash
-Em caso de erros como `ModuleNotFoundError: No module named 'pandas'`, instale as dependências com:
-
-```bash
-# 1) Update pip
-python -m pip install --upgrade pip
-
-# 2) Install script dependencies
-python -m pip install pandas openpyxl pyarrow
-```
+Um script simples para converter planilhas Excel (`.xlsx/.xls`) em **JSON** limpo, com opções para **normalizar cabeçalhos**, tratar **células vazias**, e **formatar datas** como **ISO-8601** ou **Unix timestamp** (segundos ou milissegundos).
 
 ---
 
-# PT-BR — Explicação
+## EN — Explanation
 
-O `excelInJson.py` é aquele script amigo que pega sua planilha do Excel e transforma em um JSON prontinho pra usar na sua aplicação. Ele entende que a **primeira linha** da planilha são os **nomes das colunas** (os “campos”) e cada linha de baixo vira um **objeto** no JSON.
+`excelInJson.py` turns an Excel sheet into JSON ready for your app. It assumes the **first row** contains **column names** and each subsequent row becomes one **JSON object**.
 
-O que ele faz por você:
+### Features
 
-* Lê `.xlsx/.xls` e escolhe a **aba** que você quiser.
-* **Normaliza os cabeçalhos**: vira `snake_case` pra não dar ruim no backend.
-* **Datas** viram **ISO-8601** direitinho (`2025-10-25T14:00:00`) se você pedir.
-* **Células vazias** podem virar **`null`** (ótimo pra validação).
-* Você escolhe o **formato**:
+* Read `.xlsx/.xls`; pick a **sheet** by index or name.
+* **Normalize headers** to `snake_case` (or keep as-is).
+* Convert **empty cells** to **`null`** (optional).
+* Convert **dates** to **ISO-8601** or **Unix timestamp**:
 
-  * `records` → `[{...}, {...}]` (o comum das APIs)
-  * `table` → inclui **schema** (bom pra validação/ETL)
+  * `--date-iso` → e.g., `2025-10-25T14:00:00`
+  * `--date-epoch --epoch-unit {s,ms}` → e.g., `1733431800` or `1733431800000`
+  * Parsing helpers: `--dayfirst`, `--date-format`, `--date-cols`, `--no-auto-dates`
+* Output format:
 
-Como usar:
+  * `records` → `[{...}, {...}]` (default, API-friendly)
+  * `table` → includes a **schema** (good for validation/ETL)
+
+### Quickstart
+
+```bash
+# Simple conversion (sheet 0), ISO dates, empties -> null
+python excelInJson.py data.xlsx -s 0 --date-iso --na-null
+
+# Use sheet by name, keep headers as-is, custom output file
+python excelInJson.py data.xlsx -s "Sheet1" --keep-headers -o output.json
+```
+
+### Date handling examples
+
+```bash
+# Dates as ISO, dd/mm/yyyy HH:MM
+python excelInJson.py data.xlsx -s 0 --date-iso --dayfirst --date-cols modified --date-format "%d/%m/%Y %H:%M"
+
+# Dates as Unix timestamp in seconds
+python excelInJson.py data.xlsx -s 0 --date-epoch --epoch-unit s --dayfirst --date-cols modified --date-format "%d/%m/%Y %H:%M"
+
+# Dates as Unix timestamp in milliseconds
+python excelInJson.py data.xlsx -s 0 --date-epoch --epoch-unit ms --dayfirst --date-cols modified --date-format "%d/%m/%Y %H:%M"
+
+# Disable auto-detection and convert only specific columns
+python excelInJson.py data.xlsx --date-iso --no-auto-dates --date-cols modified
+```
+
+> Notes
+> • **Numeric columns are never treated as dates** (prevents `1970-01-01` issues).
+> • If you have ZIP/codes with **leading zeros**, keep them as **text** in Excel.
+> • `pyarrow` (optional) improves typing, but the script works without it.
+
+### Install
+
+```bash
+# Update pip
+python -m pip install --upgrade pip
+# Dependencies
+python -m pip install pandas openpyxl pyarrow
+```
+
+### Troubleshooting
+
+* `ModuleNotFoundError: No module named 'pandas'` → install deps (see above).
+* Date parser warning (“Could not infer format…”) → pass `--date-format` and/or `--no-auto-dates`.
+* Multiple Python installs on Windows? Prefer the launcher:
+
+  ```bash
+  py -0p            # list interpreters
+  py -3.12 -m pip install pandas openpyxl pyarrow
+  py -3.12 excelInJson.py data.xlsx --date-iso
+  ```
+
+---
+
+## PT-BR — Explicação
+
+O `excelInJson.py` pega sua planilha do Excel e gera um **JSON** prontinho pra usar. Ele entende que a **primeira linha** tem os **nomes das colunas** e cada linha de baixo vira um **objeto** no JSON.
+
+### O que ele faz
+
+* Lê `.xlsx/.xls` e permite escolher a **aba** (índice ou nome).
+* **Normaliza cabeçalhos** para `snake_case` (ou mantém como está).
+* Converte **células vazias** em **`null`** (opcional).
+* Converte **datas** para **ISO-8601** ou **Unix timestamp**:
+
+  * `--date-iso` → ex.: `2025-10-25T14:00:00`
+  * `--date-epoch --epoch-unit {s,ms}` → ex.: `1733431800` ou `1733431800000`
+  * Ajuda no parse: `--dayfirst`, `--date-format`, `--date-cols`, `--no-auto-dates`
+* Formato de saída:
+
+  * `records` → `[{...}, {...}]` (padrão, ideal pra APIs)
+  * `table` → inclui **schema** (bom pra ETL/validação)
+
+### Comece rápido
 
 ```bash
 # Conversão simples (aba 0), datas ISO e vazios -> null
 python excelInJson.py dados.xlsx -s 0 --date-iso --na-null
 
-# Escolhendo aba pelo nome, mantendo cabeçalhos como estão
+# Escolher aba pelo nome, manter cabeçalhos e definir arquivo de saída
 python excelInJson.py dados.xlsx -s "Plan1" --keep-headers -o saida.json
 ```
 
-Quando usar:
+### Exemplos de datas
 
-* Quer popular o banco via seed/migração.
-* Precisa subir dados via API sem sofrer com Excel.
-* Vai padronizar um dataset “meio torto” vindo do cliente.
+```bash
+# Datas em ISO, formato dd/mm/aaaa HH:MM
+python excelInJson.py dados.xlsx -s 0 --date-iso --dayfirst --date-cols modificado --date-format "%d/%m/%Y %H:%M"
 
-Dica rápida:
+# Datas como Unix timestamp em segundos
+python excelInJson.py dados.xlsx -s 0 --date-epoch --epoch-unit s --dayfirst --date-cols modificado --date-format "%d/%m/%Y %H:%M"
 
-* Se tiver código/CEP com **zero à esquerda**, trate como **texto** no Excel pra não perder o formato.
+# Datas como Unix timestamp em milissegundos
+python excelInJson.py dados.xlsx -s 0 --date-epoch --epoch-unit ms --dayfirst --date-cols modificado --date-format "%d/%m/%Y %H:%M"
 
-Em caso de erros como `ModuleNotFoundError: No module named 'pandas'`, instale as dependências com:
+# Desligar detecção automática e converter só colunas específicas
+python excelInJson.py dados.xlsx --date-iso --no-auto-dates --date-cols modificado
+```
+
+> Observações
+> • **Colunas numéricas nunca são tratadas como datas** (evita `1970-01-01`).
+> • Se tiver CEP/código com **zero à esquerda**, mantenha como **texto** no Excel.
+> • `pyarrow` é opcional: melhora tipos, mas não é obrigatório.
+
+### Instalação
 
 ```bash
 # 1) Atualize o pip
 python -m pip install --upgrade pip
-
-# 2) Instale dependências do script
+# 2) Dependências
 python -m pip install pandas openpyxl pyarrow
 ```
+
+### Solução de problemas
+
+* `ModuleNotFoundError: No module named 'pandas'` → instale as dependências.
+* Aviso de parser de data (“Could not infer format…”) → use `--date-format` e/ou `--no-auto-dates`.
+* Vários Pythons no Windows? Use o launcher:
+
+  ```bash
+  py -0p
+  py -3.12 -m pip install pandas openpyxl pyarrow
+  py -3.12 excelInJson.py dados.xlsx --date-iso
+  ```
+
+---
+
+## CLI Overview
+
+**Common flags**
+
+* `-s`, `--sheet` — sheet index or name
+* `-o`, `--output` — output file name (defaults to input with `.json`)
+* `--keep-headers` — keep headers exactly as in Excel
+* `--na-null` — convert empty cells to `null`
+* `--orient {records,table}` — output shape (default `records`)
+
+**Date flags**
+
+* `--date-iso` — format detected date columns as ISO-8601
+* `--date-epoch` — format detected date columns as Unix timestamp
+* `--epoch-unit {s,ms}` — timestamp unit (seconds/milliseconds)
+* `--dayfirst` — parse as `DD/MM/YYYY` (pt-BR)
+* `--date-format "<fmt>"` — explicit strptime format (e.g., `"%d/%m/%Y %H:%M"`)
+* `--date-cols "col1,col2"` — force only these columns as dates
+* `--no-auto-dates` — disable automatic detection (use with `--date-cols`)
